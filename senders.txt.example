@@ -1,0 +1,8 @@
+# Copy this file to senders.txt (dropping the .example suffix)
+#
+#   cp senders.txt.example senders.txt
+#
+# One sender email address per line. Lines starting with # are ignored.
+# Replace these with your actual newsletter senders.
+newsletter@example.com
+digest@another-example.com

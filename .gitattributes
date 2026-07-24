@@ -1,0 +1,15 @@
+# Normalize line endings to LF for everyone (avoids CRLF/LF diff noise
+# between your WSL2 Ubuntu shell and anyone on Windows/macOS).
+* text=auto eol=lf
+
+*.py  text eol=lf
+*.sh  text eol=lf
+*.md  text eol=lf
+*.json text eol=lf
+*.txt text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Keep any generated/fetched sample data out of GitHub's language stats
+# if you ever do commit example output for the assignment writeup.
+fetched/* linguist-generated=true
