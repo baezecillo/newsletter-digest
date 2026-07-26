@@ -308,6 +308,12 @@ def main():
                 "subject": subject,
                 "date": date_hdr,
                 "date_local": msg_dt.isoformat(),
+                # Precomputed, ready-to-use display string (e.g. "Tue, 21 Jul
+                # 2026") in the pinned timezone. The skill should copy this
+                # verbatim rather than reformatting date_local itself --
+                # this removes the last place where the model was doing any
+                # date interpretation instead of the deterministic script.
+                "date_display": msg_dt.strftime("%a, %d %b %Y"),
             }
             print(f"  wrote {fname}")
 

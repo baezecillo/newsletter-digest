@@ -40,14 +40,15 @@ summarize it.
      be nonzero for overlapping mail — that's expected and explained by `sender_overlaps` below,
      not a bug to work around.
    - `newsletters`: one entry per unique fetched email (filename, sender, subject, `date`,
-     `date_local`, `matched_senders`). This is your index into the `.txt` files — don't rely on
-     directory listing order. The script already deduplicates messages that matched more than
-     one sender's query, so this list has no duplicate files. **Always use `date_local`** for
-     both the date shown in each digest entry and for sort order — never `date` (the email's
-     raw, unpinned-timezone header) and never a date you compute or reformat yourself. Copy
-     `date_local` verbatim in spirit (you may reformat it for readability, e.g. "Wed, 22 Jul
-     2026," but the underlying day must never change) — this is what makes the digest's dates
-     reproducible run to run, which is the entire reason the script pins a fixed timezone.
+     `date_local`, `date_display`, `matched_senders`). This is your index into the `.txt` files
+     — don't rely on directory listing order. The script already deduplicates messages that
+     matched more than one sender's query, so this list has no duplicate files.
+     **Use `date_display` verbatim, character for character, as the `<date>` in every digest
+     entry.** Do not reformat it, recompute it, or read the date from anywhere else (not the
+     `.txt` file's header line, not `date`, not the email body). `date_display` is already a
+     ready-to-use string (e.g. `"Tue, 21 Jul 2026"`) computed once by the script in the pinned
+     timezone specifically so there is nothing left for you to interpret. Use `date_local` (the
+     ISO field) only for sort order in step 5, never for display.
    - `sender_overlaps`: any message that matched more than one configured sender's query
      (almost always two addresses that are aliases of the same inbox). If this is non-empty, add
      one short note near the top of `digest.md` naming the overlapping senders — the script has
@@ -103,8 +104,8 @@ summarize it.
 - Do not summarize a newsletter you haven't actually read from its fetched file.
 - Do not fabricate senders, dates, or counts; report exactly what `manifest.json` and the
   script's console output say.
-- Never compute, reformat from scratch, or paraphrase a date from an email's raw headers or
-  body text — always read `date_local` from `manifest.json` and use that day. This is what
+- Never compute, reformat, or paraphrase a date yourself — always copy `date_display` from
+  `manifest.json` verbatim for what's shown, and `date_local` only for sorting. This is what
   keeps the digest's dates identical across repeated runs of the same fetched data.
 - Always cross-check `digest.md` against `senders_checked` before telling the user you're done
   — every sender must be accounted for, either with newsletter entries or in the "no new
