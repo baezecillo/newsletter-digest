@@ -22,6 +22,12 @@ Dates are computed using an explicit, fixed timezone (--timezone, default
 America/New_York) rather than the host machine's local timezone, so the
 same inbox produces the same dates regardless of where this script runs.
 
+Sender addresses are quoted in each query to force exact matching, and any
+message that still matches more than one configured sender (e.g. two
+addresses that are aliases of the same inbox) is deduplicated for output
+and explicitly recorded in manifest.json's "sender_overlaps" list, rather
+than silently double-counted or left for the summarization step to catch.
+
 Claude (via the skill) is only supposed to READ what this script produces
 and summarize it -- it should never guess at senders, dates, or Gmail
 query syntax itself. That separation is the whole point of the design.
@@ -118,12 +124,20 @@ def get_credentials(credentials_path, token_path):
 
 def build_sender_query(sender, days, tz):
     """Builds a per-sender Gmail search query, e.g.:
-    after:2026/07/17 from:foo@bar.com
+    after:2026/07/17 from:"foo@bar.com"
     Computed in the given fixed timezone, not the host machine's local one.
+
+    The address is quoted to force an exact match. Unquoted, Gmail's
+    from: search can treat a base address as also matching its own
+    plus-tagged variants (e.g. from:swyx@substack.com matching mail
+    actually sent from swyx+ainews@substack.com), which would silently
+    cross-match two different configured senders that happen to share an
+    inbox. Quoting narrows that; message-ID deduplication in main() is a
+    second, defensive layer in case any overlap still occurs.
     """
     since = datetime.now(tz) - timedelta(days=days)
     date_str = since.strftime("%Y/%m/%d")
-    return f"after:{date_str} from:{sender}"
+    return f'after:{date_str} from:"{sender}"'
 
 
 def strip_html(html):
@@ -221,13 +235,23 @@ def main():
     print(f"Using timezone: {args.timezone}")
     reset_output_dir(args.output)
 
-    newsletters = []
+    newsletters_by_id = {}    # message_id -> newsletter dict, written to disk once
+    message_senders = {}      # message_id -> list of configured senders whose query matched it
     senders_checked = []
 
     # Query each sender individually (rather than one big OR query) so we
     # can positively confirm zero matches per sender, not just report what
     # happened to turn up. This is what lets the digest later say "checked
     # 11/11 senders" instead of silently omitting senders with no mail.
+    #
+    # A side effect of querying per sender instead of one combined query is
+    # that the same message can now match more than one sender's query
+    # (e.g. two configured addresses that are aliases of the same inbox).
+    # `count` below is the raw, honest number of messages that matched
+    # *that specific sender's* query -- exactly what re-running that query
+    # in Gmail would show. Deduplication for writing files/newsletters
+    # entries, and explicit overlap reporting, happen separately below so
+    # this stays auditable rather than silently inflated or silently fixed.
     for sender in senders:
         query = build_sender_query(sender, args.days, tz)
         print(f"Gmail query ({sender}): {query}")
@@ -243,7 +267,18 @@ def main():
             if not page_token:
                 break
 
+        senders_checked.append({"sender": sender, "count": len(message_ids)})
+        if not message_ids:
+            print(f"  no new issue from {sender} in the last {args.days} day(s)")
+
         for msg_id in message_ids:
+            message_senders.setdefault(msg_id, []).append(sender)
+
+            if msg_id in newsletters_by_id:
+                # Already fetched and written under an earlier sender's
+                # query -- same message, don't re-fetch or duplicate it.
+                continue
+
             msg = service.users().messages().get(userId="me", id=msg_id, format="full").execute()
             headers = msg["payload"].get("headers", [])
             subject = header_value(headers, "Subject") or "(no subject)"
@@ -260,19 +295,33 @@ def main():
             with open(fpath, "w") as f:
                 f.write(f"From: {from_hdr}\nSubject: {subject}\nDate: {date_hdr}\n\n{body}")
 
-            newsletters.append({
+            newsletters_by_id[msg_id] = {
                 "file": fname,
-                "sender_query": sender,
                 "from": from_hdr,
                 "subject": subject,
                 "date": date_hdr,
                 "date_local": msg_dt.isoformat(),
-            })
+            }
             print(f"  wrote {fname}")
 
-        senders_checked.append({"sender": sender, "count": len(message_ids)})
-        if not message_ids:
-            print(f"  no new issue from {sender} in the last {args.days} day(s)")
+    # Now that every sender has been processed, attach the full list of
+    # matched senders to each unique newsletter, and build an explicit,
+    # deterministic report of any message that matched more than one
+    # configured sender -- so an alias/overlap is a fact in manifest.json,
+    # not something left for the summarization step to notice and explain.
+    newsletters = []
+    sender_overlaps = []
+    for msg_id, entry in newsletters_by_id.items():
+        matched = message_senders.get(msg_id, [])
+        entry["matched_senders"] = matched
+        newsletters.append(entry)
+        if len(matched) > 1:
+            sender_overlaps.append({"file": entry["file"], "subject": entry["subject"], "matched_senders": matched})
+
+    if sender_overlaps:
+        print(f"NOTE: {len(sender_overlaps)} message(s) matched more than one configured sender query (likely aliases of the same inbox):")
+        for o in sender_overlaps:
+            print(f"  {o['file']} matched: {', '.join(o['matched_senders'])}")
 
     manifest = {
         "generated_at": datetime.now(tz).isoformat(),
@@ -280,13 +329,14 @@ def main():
         "timezone": args.timezone,
         "senders_checked": senders_checked,
         "newsletters": newsletters,
+        "sender_overlaps": sender_overlaps,
     }
     with open(os.path.join(args.output, "manifest.json"), "w") as f:
         json.dump(manifest, f, indent=2)
 
     checked_with_mail = sum(1 for s in senders_checked if s["count"] > 0)
     print(
-        f"Done. {len(newsletters)} newsletter(s) from {checked_with_mail}/{len(senders_checked)} "
+        f"Done. {len(newsletters)} unique newsletter(s) from {checked_with_mail}/{len(senders_checked)} "
         f"sender(s) written to {args.output}/"
     )
 
