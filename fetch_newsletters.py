@@ -12,6 +12,10 @@ What it does, deterministically (no AI involved in this file):
   5. Writes one .txt file per newsletter into an output folder, plus a
      manifest.json summarizing what was fetched.
 
+Note: the output folder is wiped and recreated on every run, so it always
+reflects exactly the current query results -- no stale files pile up from
+newsletters that have since aged out of the day window.
+
 Claude (via the skill) is only supposed to READ what this script produces
 and summarize it -- it should never guess at senders, dates, or Gmail
 query syntax itself. That separation is the whole point of the design.
@@ -25,6 +29,7 @@ import base64
 import json
 import os
 import re
+import shutil
 import sys
 from datetime import datetime, timedelta
 
@@ -165,6 +170,31 @@ def safe_filename(s, max_len=60):
     return s[:max_len] if s else "untitled"
 
 
+def reset_output_dir(path):
+    """
+    Wipes and recreates the output directory so every run starts from a
+    clean slate. Without this, a newsletter that ages out of the day
+    window would leave its stale .txt file behind forever, un-tracked by
+    manifest.json (which IS fully regenerated each run). This makes the
+    folder's contents always match exactly what the current run fetched.
+    """
+    abs_path = os.path.abspath(path)
+    cwd = os.path.abspath(os.getcwd())
+
+    # Guard rail: refuse to wipe the current directory or filesystem root
+    # in case --output is ever passed as "." or "/" by mistake.
+    if abs_path in (cwd, os.path.abspath(os.sep)):
+        sys.exit(
+            f"ERROR: refusing to clear '{path}' -- it resolves to your "
+            "current directory or filesystem root. Use a dedicated output "
+            "folder (e.g. 'fetched')."
+        )
+
+    if os.path.exists(abs_path):
+        shutil.rmtree(abs_path)
+    os.makedirs(abs_path)
+
+
 def main():
     args = parse_args()
     senders = load_senders(args.senders)
@@ -174,7 +204,7 @@ def main():
     query = build_query(senders, args.days)
     print(f"Gmail query: {query}")
 
-    os.makedirs(args.output, exist_ok=True)
+    reset_output_dir(args.output)
 
     message_ids = []
     page_token = None
