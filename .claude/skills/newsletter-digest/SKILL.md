@@ -11,14 +11,16 @@ Turn a pile of newsletter emails from the last N days into one readable digest, 
 guessing at which emails count or making up content that isn't in the source text.
 
 Retrieval and filtering are handled entirely by `fetch_newsletters.py` (a deterministic,
-non-AI script) so the sender allowlist, date window, and Gmail query syntax are never left
-to interpretation. Your job is only to read what the script produced and summarize it.
+non-AI script) so the sender allowlist, date window, timezone, and Gmail query syntax are
+never left to interpretation. Your job is only to read what the script produced and
+summarize it.
 
 ## Workflow
 
 1. **Determine parameters.** Default to `--days 7`. If the user specifies a different window
    ("last 3 days", "since Monday"), pass that instead. Default output directory is `fetched/`,
-   default sender list is `senders.txt`.
+   default sender list is `senders.txt`, default timezone is `America/New_York` (pass
+   `--timezone` only if the user asks for a different one).
 
 2. **Run the fetch script** using the project's virtualenv interpreter directly (don't rely on
    `source venv/bin/activate`, since each Bash call may be a fresh shell):
@@ -30,8 +32,12 @@ to interpretation. Your job is only to read what the script produced and summari
    If this fails because `credentials.json` is missing or OAuth hasn't been completed yet, stop
    and tell the user exactly what's missing — do not attempt to fetch emails another way.
 
-3. **Read `fetched/manifest.json`** to get the list of fetched newsletters (filename, sender,
-   subject, date). This is your index; don't rely on directory listing order alone.
+3. **Read `fetched/manifest.json`.** It has two parts:
+   - `senders_checked`: every sender from `senders.txt`, each with a `count` of how many
+     matching emails were found (including senders with `count: 0`). This is the authoritative
+     record that every configured sender was actually checked, not just the ones with mail.
+   - `newsletters`: one entry per fetched email (filename, sender, subject, date). This is your
+     index into the `.txt` files — don't rely on directory listing order.
 
 4. **Read each fetched `.txt` file** and summarize it using only the content in that file:
    - 2-4 bullet points capturing the substantive claims, findings, or arguments in the piece.
@@ -39,6 +45,9 @@ to interpretation. Your job is only to read what the script produced and summari
      "you're on the list") with no real editorial content, label it as administrative and skip
      the bullet summary — do not invent content to fill it out.
    - Never add facts, opinions, or context that aren't present in the source text.
+   - Keep one entry per email, even if the same sender has multiple issues this week — do not
+     merge multiple emails into a single blended summary. Per-email traceability (which fact
+     came from which specific issue) is a deliberate design choice; preserve it.
 
 5. **Compile one `digest.md`** file, newest first, using this structure per entry:
 
@@ -51,16 +60,34 @@ to interpretation. Your job is only to read what the script produced and summari
    - <bullet>
    ```
 
-   Start the file with a header stating the date range covered and total count, e.g.
-   `# Newsletter Digest — 2026-07-17 to 2026-07-24 (22 newsletters)`.
+   Start the file with a header stating the date range covered and how many of the configured
+   senders had mail, e.g.
+   `# Newsletter Digest — 2026-07-17 to 2026-07-24 (20 newsletters from 9/11 configured senders)`.
 
-6. **Save the digest** to `digests/<YYYY-MM-DD>-digest.md` (create the `digests/` folder if it
+6. **Add a "No new issues this week" section** at the end of `digest.md` listing every sender
+   from `senders_checked` with `count: 0`, e.g.:
+
+   ```markdown
+   ## No new issues this week
+   - highgrowthengineer@substack.com
+   ```
+
+   If every sender had at least one issue, state that explicitly instead of omitting the
+   section (e.g. "All 11 configured senders had at least one issue this week."). The point is
+   that the digest always confirms the full sender list was checked — never just silent about
+   senders with nothing to report.
+
+7. **Save the digest** to `digests/<YYYY-MM-DD>-digest.md` (create the `digests/` folder if it
    doesn't exist) and tell the user the file path and a one-line count summary
-   (e.g. "18 substantive newsletters summarized, 4 administrative emails skipped").
+   (e.g. "18 substantive newsletters summarized, 4 administrative emails skipped, 2 senders
+   had no new issue this week").
 
 ## Guardrails
 
 - Do not fetch or query Gmail directly yourself — always go through `fetch_newsletters.py`.
 - Do not summarize a newsletter you haven't actually read from its fetched file.
-- Do not fabricate senders, dates, or counts; report exactly what the manifest and script
-  output say.
+- Do not fabricate senders, dates, or counts; report exactly what `manifest.json` and the
+  script's console output say.
+- Always cross-check `digest.md` against `senders_checked` before telling the user you're done
+  — every sender must be accounted for, either with newsletter entries or in the "no new
+  issues" section.

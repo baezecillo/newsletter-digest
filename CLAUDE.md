@@ -12,12 +12,20 @@ a plain, undirected prompt asking for the same thing, and analyze the quality di
 
 ## Architecture / design intent
 
-- `fetch_newsletters.py` is the **non-AI tool**. It authenticates to Gmail via OAuth, runs a
-  deterministic query (sender allowlist + date window), extracts message bodies, and writes
-  everything to `fetched/` plus `fetched/manifest.json`. It does not use AI in any way.
+- `fetch_newsletters.py` is the **non-AI tool**. It authenticates to Gmail via OAuth, queries
+  each configured sender individually (so zero-match senders are recorded, not just omitted),
+  extracts message bodies, and writes everything to `fetched/` plus `fetched/manifest.json`.
+  Dates are computed in an explicit, fixed timezone (`--timezone`, default `America/New_York`)
+  rather than the host machine's local timezone, so results are reproducible regardless of
+  where the script runs. It does not use AI in any way.
+- `fetched/manifest.json` has two top-level keys: `senders_checked` (every configured sender
+  with its match count, including `0`) and `newsletters` (one entry per fetched email). Both
+  exist so the skill can positively confirm every sender was checked, not just report what
+  happened to have mail.
 - `.claude/skills/newsletter-digest/SKILL.md` is the **workflow spec**. It tells Claude to run
-  the script, read only `fetched/manifest.json` and the `.txt` files it lists, and summarize
-  strictly from that content — never to query Gmail directly or invent content.
+  the script, read `fetched/manifest.json`, and summarize strictly from the fetched `.txt`
+  files — never to query Gmail directly, invent content, or merge multiple emails from the
+  same sender into one blended entry.
 - This split is the core design principle: retrieval/filtering is deterministic and
   reproducible; only summarization is left to the model.
 
