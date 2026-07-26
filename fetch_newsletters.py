@@ -22,11 +22,16 @@ Dates are computed using an explicit, fixed timezone (--timezone, default
 America/New_York) rather than the host machine's local timezone, so the
 same inbox produces the same dates regardless of where this script runs.
 
-Sender addresses are quoted in each query to force exact matching, and any
-message that still matches more than one configured sender (e.g. two
-addresses that are aliases of the same inbox) is deduplicated for output
-and explicitly recorded in manifest.json's "sender_overlaps" list, rather
-than silently double-counted or left for the summarization step to catch.
+Sender addresses are quoted in each query, though in practice Gmail still
+treats plus-tagged variants of the same mailbox (e.g. user@domain and
+user+tag@domain) as equivalent regardless of quoting -- quoting alone
+does NOT reliably prevent two configured senders from matching the same
+underlying message. The real guarantee is downstream: any message that
+matches more than one configured sender's query is deduplicated for
+output (written once) and explicitly recorded in manifest.json's
+"sender_overlaps" list, so an overlap is always a fact the script reports,
+never something silently double-counted or left for the summarization
+step to notice on its own.
 
 Claude (via the skill) is only supposed to READ what this script produces
 and summarize it -- it should never guess at senders, dates, or Gmail
@@ -127,13 +132,15 @@ def build_sender_query(sender, days, tz):
     after:2026/07/17 from:"foo@bar.com"
     Computed in the given fixed timezone, not the host machine's local one.
 
-    The address is quoted to force an exact match. Unquoted, Gmail's
-    from: search can treat a base address as also matching its own
-    plus-tagged variants (e.g. from:swyx@substack.com matching mail
-    actually sent from swyx+ainews@substack.com), which would silently
-    cross-match two different configured senders that happen to share an
-    inbox. Quoting narrows that; message-ID deduplication in main() is a
-    second, defensive layer in case any overlap still occurs.
+    The address is quoted as a best-effort attempt at an exact match, but
+    in practice Gmail can still treat a base address as matching its own
+    plus-tagged variants regardless of quoting (e.g. from:"swyx@substack.com"
+    still matching mail sent from swyx+ainews@substack.com) -- so this does
+    NOT reliably prevent two configured senders from sharing an inbox and
+    cross-matching. The message-ID deduplication and sender_overlaps
+    reporting in main() are the actual guarantee: they make any overlap a
+    recorded fact rather than a silent double-count, regardless of whether
+    quoting helped in a given case.
     """
     since = datetime.now(tz) - timedelta(days=days)
     date_str = since.strftime("%Y/%m/%d")
