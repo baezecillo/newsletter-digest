@@ -13,7 +13,7 @@
    - Application type: **Desktop app**.
    - Download the JSON file, rename it `credentials.json`, and put it in this project folder.
 
-## 2. WSL2 Ubuntu setup
+## 2. Setup (Linux)
 
 ```bash
 git clone https://github.com/baezecillo/newsletter-digest.git

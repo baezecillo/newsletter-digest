@@ -7,14 +7,20 @@ The non-AI "tool" half of the newsletter-digest skill.
 What it does, deterministically (no AI involved in this file):
   1. Reads an allowlist of sender email addresses from a text file.
   2. Authenticates to Gmail via OAuth (Gmail API, read-only scope).
-  3. Searches for messages from those senders within the last N days.
-  4. Extracts the plain-text body of each message.
+  3. For EACH sender individually, searches for messages within the last N
+     days, so we always know exactly how many issues (including zero) came
+     from every configured sender -- not just the senders that had mail.
+  4. Extracts the plain-text body of each matching message.
   5. Writes one .txt file per newsletter into an output folder, plus a
-     manifest.json summarizing what was fetched.
+     manifest.json summarizing what was fetched per sender and per email.
 
 Note: the output folder is wiped and recreated on every run, so it always
 reflects exactly the current query results -- no stale files pile up from
 newsletters that have since aged out of the day window.
+
+Dates are computed using an explicit, fixed timezone (--timezone, default
+America/New_York) rather than the host machine's local timezone, so the
+same inbox produces the same dates regardless of where this script runs.
 
 Claude (via the skill) is only supposed to READ what this script produces
 and summarize it -- it should never guess at senders, dates, or Gmail
@@ -32,6 +38,7 @@ import re
 import shutil
 import sys
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -54,6 +61,11 @@ def parse_args():
                     help="Path to the OAuth client secret file from Google Cloud Console.")
     p.add_argument("--token", default="token.json",
                     help="Path where the cached OAuth token is stored after first login.")
+    p.add_argument("--timezone", default="America/New_York",
+                    help="IANA timezone used for all date math and digest dates "
+                         "(default: America/New_York). Fixed explicitly so results "
+                         "are reproducible regardless of the host machine's local "
+                         "timezone setting.")
     return p.parse_args()
 
 
@@ -104,14 +116,14 @@ def get_credentials(credentials_path, token_path):
     return creds
 
 
-def build_query(senders, days):
-    """Builds a Gmail search query string, e.g.:
-    after:2026/07/17 (from:foo@bar.com OR from:baz@qux.com)
+def build_sender_query(sender, days, tz):
+    """Builds a per-sender Gmail search query, e.g.:
+    after:2026/07/17 from:foo@bar.com
+    Computed in the given fixed timezone, not the host machine's local one.
     """
-    since = datetime.now() - timedelta(days=days)
+    since = datetime.now(tz) - timedelta(days=days)
     date_str = since.strftime("%Y/%m/%d")
-    sender_clause = " OR ".join(f"from:{s}" for s in senders)
-    return f"after:{date_str} ({sender_clause})"
+    return f"after:{date_str} from:{sender}"
 
 
 def strip_html(html):
@@ -201,53 +213,82 @@ def main():
     creds = get_credentials(args.credentials, args.token)
     service = build("gmail", "v1", credentials=creds)
 
-    query = build_query(senders, args.days)
-    print(f"Gmail query: {query}")
+    try:
+        tz = ZoneInfo(args.timezone)
+    except Exception:
+        sys.exit(f"ERROR: unrecognized --timezone '{args.timezone}' (expected an IANA name, e.g. America/New_York).")
 
+    print(f"Using timezone: {args.timezone}")
     reset_output_dir(args.output)
 
-    message_ids = []
-    page_token = None
-    while True:
-        resp = service.users().messages().list(
-            userId="me", q=query, pageToken=page_token
-        ).execute()
-        message_ids.extend(m["id"] for m in resp.get("messages", []))
-        page_token = resp.get("nextPageToken")
-        if not page_token:
-            break
+    newsletters = []
+    senders_checked = []
 
-    print(f"Found {len(message_ids)} matching message(s).")
+    # Query each sender individually (rather than one big OR query) so we
+    # can positively confirm zero matches per sender, not just report what
+    # happened to turn up. This is what lets the digest later say "checked
+    # 11/11 senders" instead of silently omitting senders with no mail.
+    for sender in senders:
+        query = build_sender_query(sender, args.days, tz)
+        print(f"Gmail query ({sender}): {query}")
 
-    manifest = []
-    for msg_id in message_ids:
-        msg = service.users().messages().get(userId="me", id=msg_id, format="full").execute()
-        headers = msg["payload"].get("headers", [])
-        subject = header_value(headers, "Subject") or "(no subject)"
-        sender = header_value(headers, "From")
-        date_hdr = header_value(headers, "Date")
+        message_ids = []
+        page_token = None
+        while True:
+            resp = service.users().messages().list(
+                userId="me", q=query, pageToken=page_token
+            ).execute()
+            message_ids.extend(m["id"] for m in resp.get("messages", []))
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                break
 
-        body = extract_body(msg["payload"])
+        for msg_id in message_ids:
+            msg = service.users().messages().get(userId="me", id=msg_id, format="full").execute()
+            headers = msg["payload"].get("headers", [])
+            subject = header_value(headers, "Subject") or "(no subject)"
+            from_hdr = header_value(headers, "From")
+            date_hdr = header_value(headers, "Date")
 
-        date_slug = datetime.fromtimestamp(int(msg["internalDate"]) / 1000).strftime("%Y-%m-%d")
-        fname = f"{date_slug}_{safe_filename(sender)}_{safe_filename(subject)}.txt"
-        fpath = os.path.join(args.output, fname)
+            body = extract_body(msg["payload"])
 
-        with open(fpath, "w") as f:
-            f.write(f"From: {sender}\nSubject: {subject}\nDate: {date_hdr}\n\n{body}")
+            msg_dt = datetime.fromtimestamp(int(msg["internalDate"]) / 1000, tz=tz)
+            date_slug = msg_dt.strftime("%Y-%m-%d")
+            fname = f"{date_slug}_{safe_filename(from_hdr)}_{safe_filename(subject)}.txt"
+            fpath = os.path.join(args.output, fname)
 
-        manifest.append({
-            "file": fname,
-            "from": sender,
-            "subject": subject,
-            "date": date_hdr,
-        })
-        print(f"  wrote {fname}")
+            with open(fpath, "w") as f:
+                f.write(f"From: {from_hdr}\nSubject: {subject}\nDate: {date_hdr}\n\n{body}")
 
+            newsletters.append({
+                "file": fname,
+                "sender_query": sender,
+                "from": from_hdr,
+                "subject": subject,
+                "date": date_hdr,
+                "date_local": msg_dt.isoformat(),
+            })
+            print(f"  wrote {fname}")
+
+        senders_checked.append({"sender": sender, "count": len(message_ids)})
+        if not message_ids:
+            print(f"  no new issue from {sender} in the last {args.days} day(s)")
+
+    manifest = {
+        "generated_at": datetime.now(tz).isoformat(),
+        "days": args.days,
+        "timezone": args.timezone,
+        "senders_checked": senders_checked,
+        "newsletters": newsletters,
+    }
     with open(os.path.join(args.output, "manifest.json"), "w") as f:
         json.dump(manifest, f, indent=2)
 
-    print(f"Done. {len(manifest)} newsletter(s) written to {args.output}/")
+    checked_with_mail = sum(1 for s in senders_checked if s["count"] > 0)
+    print(
+        f"Done. {len(newsletters)} newsletter(s) from {checked_with_mail}/{len(senders_checked)} "
+        f"sender(s) written to {args.output}/"
+    )
 
 
 if __name__ == "__main__":
