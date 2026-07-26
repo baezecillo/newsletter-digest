@@ -13,15 +13,19 @@ a plain, undirected prompt asking for the same thing, and analyze the quality di
 ## Architecture / design intent
 
 - `fetch_newsletters.py` is the **non-AI tool**. It authenticates to Gmail via OAuth, queries
-  each configured sender individually (so zero-match senders are recorded, not just omitted),
-  extracts message bodies, and writes everything to `fetched/` plus `fetched/manifest.json`.
-  Dates are computed in an explicit, fixed timezone (`--timezone`, default `America/New_York`)
-  rather than the host machine's local timezone, so results are reproducible regardless of
-  where the script runs. It does not use AI in any way.
-- `fetched/manifest.json` has two top-level keys: `senders_checked` (every configured sender
-  with its match count, including `0`) and `newsletters` (one entry per fetched email). Both
-  exist so the skill can positively confirm every sender was checked, not just report what
-  happened to have mail.
+  each configured sender individually with a quoted, exact-match address (so zero-match senders
+  are recorded, not just omitted, and aliased addresses aren't fuzzy-matched against each
+  other), extracts message bodies, and writes everything to `fetched/` plus
+  `fetched/manifest.json`. Dates are computed in an explicit, fixed timezone (`--timezone`,
+  default `America/New_York`) rather than the host machine's local timezone, so results are
+  reproducible regardless of where the script runs. It does not use AI in any way.
+- `fetched/manifest.json` has three top-level keys: `senders_checked` (every configured sender
+  with its raw match count, including `0`), `newsletters` (one entry per unique fetched email,
+  already deduplicated across sender queries), and `sender_overlaps` (any message that matched
+  more than one configured sender's query, typically two addresses aliasing the same inbox).
+  These exist so the skill can positively confirm every sender was checked and so any
+  cross-sender overlap is a fact recorded by the script itself, not something the model has to
+  notice and explain in prose.
 - `.claude/skills/newsletter-digest/SKILL.md` is the **workflow spec**. It tells Claude to run
   the script, read `fetched/manifest.json`, and summarize strictly from the fetched `.txt`
   files — never to query Gmail directly, invent content, or merge multiple emails from the

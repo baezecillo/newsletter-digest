@@ -32,12 +32,21 @@ summarize it.
    If this fails because `credentials.json` is missing or OAuth hasn't been completed yet, stop
    and tell the user exactly what's missing — do not attempt to fetch emails another way.
 
-3. **Read `fetched/manifest.json`.** It has two parts:
+3. **Read `fetched/manifest.json`.** It has three parts:
    - `senders_checked`: every sender from `senders.txt`, each with a `count` of how many
      matching emails were found (including senders with `count: 0`). This is the authoritative
      record that every configured sender was actually checked, not just the ones with mail.
-   - `newsletters`: one entry per fetched email (filename, sender, subject, date). This is your
-     index into the `.txt` files — don't rely on directory listing order.
+     Note that if two configured senders are aliases of the same inbox, their counts can each
+     be nonzero for overlapping mail — that's expected and explained by `sender_overlaps` below,
+     not a bug to work around.
+   - `newsletters`: one entry per unique fetched email (filename, sender, subject, date,
+     `matched_senders`). This is your index into the `.txt` files — don't rely on directory
+     listing order. The script already deduplicates messages that matched more than one sender's
+     query, so this list has no duplicate files.
+   - `sender_overlaps`: any message that matched more than one configured sender's query
+     (almost always two addresses that are aliases of the same inbox). If this is non-empty, add
+     one short note near the top of `digest.md` naming the overlapping senders — the script has
+     already done the detection, so just report what it found rather than re-deriving it.
 
 4. **Read each fetched `.txt` file** and summarize it using only the content in that file:
    - 2-4 bullet points capturing the substantive claims, findings, or arguments in the piece.
