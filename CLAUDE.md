@@ -12,20 +12,26 @@ a plain, undirected prompt asking for the same thing, and analyze the quality di
 
 ## Architecture / design intent
 
-- `fetch_newsletters.py` is the **non-AI tool**. It authenticates to Gmail via OAuth, queries
-  each configured sender individually with a quoted, exact-match address (so zero-match senders
-  are recorded, not just omitted, and aliased addresses aren't fuzzy-matched against each
-  other), extracts message bodies, and writes everything to `fetched/` plus
-  `fetched/manifest.json`. Dates are computed in an explicit, fixed timezone (`--timezone`,
-  default `America/New_York`) rather than the host machine's local timezone, so results are
-  reproducible regardless of where the script runs. It does not use AI in any way.
+- `fetch_newsletters.py` is the **non-AI tool**. It authenticates to Gmail via OAuth and queries
+  each configured sender individually (so zero-match senders are recorded, not just omitted).
+  Addresses are quoted in each query, but that alone does not reliably stop Gmail from matching
+  a base address against its own plus-tagged alias (e.g. `swyx@substack.com` vs.
+  `swyx+ainews@substack.com`) — the real guarantee against that is downstream deduplication by
+  message ID, with any overlap explicitly recorded rather than silently absorbed. The script
+  extracts message bodies and writes everything to `fetched/` plus `fetched/manifest.json`.
+  Dates are computed in an explicit, fixed timezone (`--timezone`, default `America/New_York`)
+  rather than the host machine's local timezone, so results are reproducible regardless of
+  where the script runs. It does not use AI in any way.
 - `fetched/manifest.json` has three top-level keys: `senders_checked` (every configured sender
   with its raw match count, including `0`), `newsletters` (one entry per unique fetched email,
-  already deduplicated across sender queries), and `sender_overlaps` (any message that matched
-  more than one configured sender's query, typically two addresses aliasing the same inbox).
-  These exist so the skill can positively confirm every sender was checked and so any
-  cross-sender overlap is a fact recorded by the script itself, not something the model has to
-  notice and explain in prose.
+  already deduplicated across sender queries, each with `date` (raw header), `date_local` (ISO,
+  fixed timezone, for sorting), and `date_display` (a precomputed, ready-to-copy display string
+  like `"Tue, 21 Jul 2026"` — the skill must use this verbatim rather than reformatting
+  `date_local` itself), and `sender_overlaps` (any message that matched more than one configured
+  sender's query, typically two addresses aliasing the same inbox). These exist so the skill can
+  positively confirm every sender was checked, display dates with zero interpretation left to
+  the model, and treat any cross-sender overlap as a fact the script recorded rather than
+  something the model has to notice and explain in prose.
 - `.claude/skills/newsletter-digest/SKILL.md` is the **workflow spec**. It tells Claude to run
   the script, read `fetched/manifest.json`, and summarize strictly from the fetched `.txt`
   files — never to query Gmail directly, invent content, or merge multiple emails from the
