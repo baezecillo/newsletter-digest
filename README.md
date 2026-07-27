@@ -1,7 +1,6 @@
 # Newsletter Digest Skill
 
-CMU 17-636 (DevOps) Assignment 5 — Agentic Engineering, Option 1: a new Claude Code skill that
-specifies a workflow, backed by a non-AI tool.
+This is Claude Code skill that specifies a workflow, backed by a non-AI tool.
 
 This project fetches newsletter emails from a configured list of senders over the last N days
 and produces a readable, per-email digest — without letting Claude guess at senders, dates, or
@@ -34,8 +33,8 @@ content for them, and confirm every configured sender was checked — with eithe
 ├── credentials.json.example                     template OAuth client config (copy to credentials.json)
 ├── SETUP.md                                     Google Cloud Console + local environment setup
 ├── CLAUDE.md                                     project context for Claude Code
-├── design.md                                     assignment deliverable: design + rationale
-├── evaluation.md                                 assignment deliverable: evaluation + analysis
+├── design.md                                     design + rationale
+├── evaluation.md                                 evaluation + analysis
 ├── .gitignore / .gitattributes
 └── README.md                                     this file
 ```
@@ -67,10 +66,3 @@ Give me my newsletter digest
 ```
 
 It will run the fetch script, read the results, and write `digests/<date>-digest.md`.
-
-## Assignment deliverables
-
-- `design.md` — what this project started with (a plain-prompt Cowork automation), what was
-  built instead, and the design rationale.
-- `evaluation.md` — how the skill was evaluated against that baseline, the results, and analysis
-  tying those results back to the design.
