@@ -31,5 +31,5 @@ Thumbs.db
 .vscode/
 .idea/
 
-# --- Assignment packaging output (rebuild on demand, don't version) ---
+# --- Packaging output (rebuild on demand, don't version) ---
 *.zip

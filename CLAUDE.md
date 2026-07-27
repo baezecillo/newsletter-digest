@@ -4,11 +4,10 @@ Context for Claude Code working in this repository.
 
 ## What this project is
 
-A CMU 17-636 DevOps assignment (Agentic Engineering, Assignment 5, option 1: write a new
-skill). The deliverable is a Claude Code **skill** — `.claude/skills/newsletter-digest/SKILL.md`
-— that fetches newsletter emails from a fixed sender list over the last N days and produces a
-readable digest. The point of the assignment is to compare this skill-driven workflow against
-a plain, undirected prompt asking for the same thing, and analyze the quality difference.
+This is a Claude Code **skill** — `.claude/skills/newsletter-digest/SKILL.md` — that fetches
+newsletter emails from a fixed sender list over the last N days and produces a readable digest.
+The goal is to compare this skill-driven workflow against a plain, undirected prompt asking for
+the same thing, and analyze the quality difference.
 
 ## Architecture / design intent
 
@@ -53,9 +52,3 @@ a plain, undirected prompt asking for the same thing, and analyze the quality di
 - `token.json` is a cached OAuth token; never print or log its contents.
 - Never read, print, or otherwise expose the contents of `credentials.json` or `token.json`
   in any output, commit message, or summary.
-
-## Assignment deliverables (for context, not code)
-
-- `design.md` and `evaluation.md` (repo root) document the design rationale and the
-  skill-vs-plain-prompt comparison required by the assignment. These are written docs, not
-  something Claude Code needs to keep in sync with the code automatically.
